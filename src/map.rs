@@ -1,4 +1,5 @@
 use std::cmp;
+use std::ops;
 
 use rand::Rng;
 
@@ -8,6 +9,20 @@ use crate::cst;
 
 // pub struct Map(Vec<Vec<Tile>>);
 pub struct Map(Vec<Tile>);
+
+impl ops::Deref for Map {
+    type Target = Vec<Tile>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl ops::DerefMut for Map {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 impl Map {
     pub fn new() -> (Self, (i32, i32)) {
@@ -52,10 +67,6 @@ impl Map {
         }
 
         (map, starting_pos.expect("should be set"))
-    }
-
-    pub fn map(&self) -> &[Tile] {
-        &self.0
     }
 
     pub fn set(&mut self, x: i32, y: i32, t: Tile) {

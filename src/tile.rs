@@ -16,10 +16,6 @@ pub struct Colors {
 }
 
 impl Colors {
-    pub fn one(c: Color) -> Self {
-        Colors { dark: c, light: c }
-    }
-
     pub fn get(&self, visible: bool) -> Color {
         match visible {
             true => self.light,
@@ -32,6 +28,7 @@ impl Colors {
 pub struct Tile {
     pub blocked: bool,
     pub block_sight: bool,
+    pub explored: bool,
     pub colors: Colors,
     pub inner: Type,
 }
@@ -39,6 +36,7 @@ pub struct Tile {
 impl Tile {
     pub fn empty() -> Self {
         Tile {
+            explored: false,
             blocked: false,
             block_sight: false,
             colors: Colors {
@@ -51,6 +49,7 @@ impl Tile {
 
     pub fn wall() -> Self {
         Tile {
+            explored: false,
             blocked: true,
             block_sight: true,
             colors: Colors {
@@ -63,6 +62,7 @@ impl Tile {
 
     pub fn debug() -> Self {
         Tile {
+            explored: false,
             blocked: false,
             block_sight: false,
             colors: Colors {
@@ -71,5 +71,9 @@ impl Tile {
             },
             inner: Type::Passage,
         }
+    }
+
+    pub fn get_color(&self, visible: bool) -> Color {
+        self.colors.get(visible)
     }
 }

@@ -21,7 +21,7 @@ use tile::Tile;
 use crate::constants as cst;
 
 fn main() {
-    let (map, (start_x, start_y)) = Map::new();
+    let (mut map, (start_x, start_y)) = Map::new();
     let player = Object::new(start_x, start_y, '@', colors::WHITE);
     let npc = Object::new(
         cst::MAP_WIDTH / 2 - 5,
@@ -64,7 +64,7 @@ fn main() {
             &mut root,
             &mut con,
             &mut objects,
-            &map,
+            &mut map,
             &fov_map_lock,
             fov_recompute,
         );
@@ -118,7 +118,7 @@ fn handle_keys(root: &mut Root, player: &mut Object, map: &Map) -> bool {
             root.set_fullscreen(!fullscreen);
         }
         Key { code: Escape, .. } => return true,
-        _ => {},
+        _ => {}
     }
 
     false
@@ -128,7 +128,7 @@ fn render_all(
     root: &mut Root,
     con: &mut Offscreen,
     objects: &mut [Object],
-    map: &Map,
+    map: &mut Map,
     fov_map: &std::rc::Rc<std::sync::Mutex<tcod::map::Map>>,
     fov_recompute: bool,
 ) {
@@ -147,10 +147,15 @@ fn render_all(
         })
         .for_each(|o| o.draw(con));
 
-    for (i, t) in map.map().iter().enumerate() {
+    for (i, t) in map.iter_mut().enumerate() {
         let (x, y) = Map::index_to_pos(i as i32);
         let visible = data.is_in_fov(x, y);
-        con.set_char_background(x, y, t.colors.get(visible), BackgroundFlag::Set);
+        if visible {
+            t.explored = true;
+        }
+        if t.explored {
+            con.set_char_background(x, y, t.get_color(visible), BackgroundFlag::Set);
+        }
     }
 
     blit(
