@@ -1,4 +1,4 @@
-use tcod::colors::Color;
+use tcod::colors::{self, Color};
 
 use crate::constants as cst;
 
@@ -10,10 +10,29 @@ pub enum Type {
 }
 
 #[derive(Debug, Copy, Clone)]
+pub struct Colors {
+    light: Color,
+    dark: Color,
+}
+
+impl Colors {
+    pub fn one(c: Color) -> Self {
+        Colors { dark: c, light: c }
+    }
+
+    pub fn get(&self, visible: bool) -> Color {
+        match visible {
+            true => self.light,
+            false => self.dark,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub struct Tile {
     pub blocked: bool,
     pub block_sight: bool,
-    pub color: Color,
+    pub colors: Colors,
     pub inner: Type,
 }
 
@@ -22,7 +41,10 @@ impl Tile {
         Tile {
             blocked: false,
             block_sight: false,
-            color: cst::COLOR_DARK_GROUND,
+            colors: Colors {
+                dark: cst::COLOR_DARK_GROUND,
+                light: cst::COLOR_LIGHT_GROUND,
+            },
             inner: Type::Floor,
         }
     }
@@ -31,7 +53,10 @@ impl Tile {
         Tile {
             blocked: true,
             block_sight: true,
-            color: cst::COLOR_DARK_WALL,
+            colors: Colors {
+                dark: cst::COLOR_DARK_WALL,
+                light: cst::COLOR_LIGHT_WALL,
+            },
             inner: Type::Wall,
         }
     }
@@ -40,7 +65,10 @@ impl Tile {
         Tile {
             blocked: false,
             block_sight: false,
-            color: cst::COLOR_DEBUG,
+            colors: Colors {
+                dark: cst::COLOR_DEBUG,
+                light: colors::LIGHTEST_FLAME,
+            },
             inner: Type::Passage,
         }
     }

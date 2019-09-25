@@ -13,10 +13,6 @@ impl Map {
     pub fn new() -> (Self, (i32, i32)) {
         // fill the map with "blocked" tiles
         let mut map = Map(vec![Tile::wall(); (cst::MAP_HEIGHT * cst::MAP_WIDTH) as usize]);
-        // let mut map = Map(vec![
-        //     vec![Tile::wall(); cst::MAP_HEIGHT as usize];
-        //     cst::MAP_WIDTH as usize
-        // ]);
 
         let mut starting_pos = None as Option<(i32, i32)>;
         let mut prev_room: Rect = Rect::new(0, 0, 0, 0);
@@ -31,7 +27,6 @@ impl Map {
 
             let new_room = Rect::new(x, y, w, h);
             let (new_x, new_y) = new_room.center();
-            println!("Center of the new room {:?} is: {:?}", new_room, new_room.center());
             let failed = rooms.iter()
                 .any(|other_room| new_room.intersects_with(other_room));
 
@@ -41,7 +36,6 @@ impl Map {
                 if starting_pos.is_none() {
                     starting_pos = Some((new_x, new_y));
                 } else {
-                    println!("Trying to connect...");
                     // connect to the previous room
                     let (prev_x, prev_y) = prev_room.center();
                     if rand::random() {
@@ -89,7 +83,6 @@ impl Map {
     }
 
     fn create_h_tunnel(&mut self, x1: i32, x2: i32, y: i32) {
-        println!("H from {} to {}", cmp::min(x1, x2), cmp::max(x1, x2));
         for x in cmp::min(x1, x2)..(cmp::max(x1, x2) + 1) {
             if self.get(x, y).inner == crate::tile::Type::Wall {
                 *self.get_mut(x, y) = Tile::debug();
@@ -98,7 +91,6 @@ impl Map {
     }
 
     fn create_v_tunnel(&mut self, y1: i32, y2: i32, x: i32) {
-        println!("V from {} to {}", cmp::min(y1, y2), cmp::max(y1, y2));
         for y in cmp::min(y1, y2)..(cmp::max(y1, y2) + 1) {
             if self.get(x, y).inner == crate::tile::Type::Wall {
                 *self.get_mut(x, y) = Tile::debug();
