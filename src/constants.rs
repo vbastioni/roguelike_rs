@@ -36,3 +36,7 @@ pub const COLOR_DEBUG: Color = Color { r: 255, g: 0, b: 255, };
 pub const FOV_ALGO: FovAlgorithm = FovAlgorithm::Basic;
 pub const FOV_LIGHT_WALLS: bool = true;
 pub const TORCH_RADIUS: i32 = 10;
+
+pub const MAX_ROOM_MONSTERS: i32 = 3;
+
+pub const PLAYER_POS: usize = 0;

@@ -1,11 +1,14 @@
 use std::cmp;
 use std::ops;
+use std::rc::Rc;
+use std::sync::Mutex;
 
 use rand::Rng;
 
-use crate::Tile;
-use crate::Rect;
 use crate::cst;
+use crate::object::Object;
+use crate::tile::{Tile, Type};
+use crate::Rect;
 
 // pub struct Map(Vec<Vec<Tile>>);
 pub struct Map(Vec<Tile>);
@@ -25,9 +28,12 @@ impl ops::DerefMut for Map {
 }
 
 impl Map {
-    pub fn new() -> (Self, (i32, i32)) {
+    pub fn new(place_objects: impl Fn(&Rect)) -> (Self, (i32, i32)) {
         // fill the map with "blocked" tiles
-        let mut map = Map(vec![Tile::wall(); (cst::MAP_HEIGHT * cst::MAP_WIDTH) as usize]);
+        let mut map = Map(vec![
+            Tile::wall();
+            (cst::MAP_HEIGHT * cst::MAP_WIDTH) as usize
+        ]);
 
         let mut starting_pos = None as Option<(i32, i32)>;
         let mut prev_room: Rect = Rect::new(0, 0, 0, 0);
@@ -42,11 +48,13 @@ impl Map {
 
             let new_room = Rect::new(x, y, w, h);
             let (new_x, new_y) = new_room.center();
-            let failed = rooms.iter()
+            let failed = rooms
+                .iter()
                 .any(|other_room| new_room.intersects_with(other_room));
 
             if !failed {
                 map.create_room(&new_room);
+                place_objects(&new_room);
 
                 if starting_pos.is_none() {
                     starting_pos = Some((new_x, new_y));
@@ -69,6 +77,24 @@ impl Map {
         (map, starting_pos.expect("should be set"))
     }
 
+    pub fn move_object(
+        &self,
+        objects_lock: &Rc<Mutex<Vec<Object>>>,
+        index: usize,
+        delta: (i32, i32),
+    ) {
+        let (x, y) = {
+            let objects = objects_lock.lock().unwrap();
+            objects[index].pos()
+        };
+        let (dx, dy) = delta;
+        let (nx, ny) = (dx + x, dy + y);
+        if !self.is_blocked(nx, ny, objects_lock) {
+            let mut objects = objects_lock.lock().unwrap();
+            objects[index].move_by(dx, dy)
+        }
+    }
+
     pub fn set(&mut self, x: i32, y: i32, t: Tile) {
         *self.get_mut(x, y) = t;
     }
@@ -81,8 +107,13 @@ impl Map {
         &mut self.0[(x + y * cst::MAP_WIDTH) as usize]
     }
 
-    pub fn is_blocked(&self, x: i32, y: i32) -> bool {
-        self.get(x, y).blocked
+    pub fn is_blocked(&self, x: i32, y: i32, objects_lock: &Rc<Mutex<Vec<Object>>>) -> bool {
+        if self.get(x, y).blocked {
+            true
+        } else {
+            let objects = objects_lock.lock().unwrap();
+            objects.iter().any(|o| o.blocks() && o.pos() == (x, y))
+        }
     }
 
     fn create_room(&mut self, room: &Rect) {
@@ -111,5 +142,19 @@ impl Map {
 
     pub fn index_to_pos(i: i32) -> (i32, i32) {
         (i % cst::MAP_WIDTH, i / cst::MAP_WIDTH)
+    }
+
+    pub fn explored_count(&self) -> (i32, i32) {
+        let explorables = self
+            .0
+            .iter()
+            .filter(|t| match t.inner {
+                Type::Floor | Type::Passage => true,
+                _ => false,
+            })
+            .collect::<Vec<_>>();
+        let explored = explorables.iter().filter(|t| t.explored).count() as i32;
+        let total = explorables.len() as i32;
+        (explored, total)
     }
 }

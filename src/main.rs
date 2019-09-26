@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use std::sync::Mutex;
 
+use rand::Rng;
 use tcod::colors;
 use tcod::console::*;
 use tcod::map::Map as FovMap;
@@ -16,21 +17,29 @@ use combinations::Combination as Cb;
 use map::Map;
 use object::Object;
 use rect::Rect;
-use tile::Tile;
 
 use crate::constants as cst;
 
+static mut DISABLED_FOV: bool = false;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum PlayerAction {
+    TookTurn,
+    DidntTakeTurn,
+    Exit,
+}
+
 fn main() {
-    let (mut map, (start_x, start_y)) = Map::new();
-    let player = Object::new(start_x, start_y, '@', colors::WHITE);
-    let npc = Object::new(
-        cst::MAP_WIDTH / 2 - 5,
-        cst::MAP_HEIGHT / 2,
-        '@',
-        colors::YELLOW,
-    );
-    // the list of objects with those two
-    let mut objects = [player, npc];
+
+    let player = Object::new(-1, -1, '@', colors::WHITE, "player", true);
+    let objects = vec![player];
+    let objects_lock = Rc::new(Mutex::new(objects));
+
+    let (mut map, (start_x, start_y)) = Map::new(|r| place_objects(r, &objects_lock));
+    {
+        let mut objects = objects_lock.lock().unwrap();
+        objects[cst::PLAYER_POS].set_pos((start_x, start_y));
+    }
 
     let fov_map = FovMap::new(cst::MAP_WIDTH, cst::MAP_HEIGHT);
     let fov_map_lock = Rc::new(Mutex::new(fov_map));
@@ -39,8 +48,10 @@ fn main() {
         let tx = *x as i32;
         let ty = *y as i32;
         let tile = map.get(tx, ty);
-        let mut data = fov_map_lock.lock().unwrap();
-        data.set(tx, ty, !tile.block_sight, !tile.blocked);
+        fov_map_lock
+            .lock()
+            .unwrap()
+            .set(tx, ty, !tile.block_sight, !tile.blocked);
     });
 
     let mut root = Root::initializer()
@@ -56,89 +67,109 @@ fn main() {
 
     let mut previous_player_position = (-1, -1);
     while !root.window_closed() {
-        // con.set_default_foreground(WHITE);
+        let player_pos = {
+            let objects = objects_lock.lock().unwrap();
+            objects[cst::PLAYER_POS].pos()
+        };
+        let fov_recompute = previous_player_position != player_pos;
         con.clear();
 
-        let fov_recompute = previous_player_position != objects[0].pos();
         render_all(
             &mut root,
             &mut con,
-            &mut objects,
+            &objects_lock,
             &mut map,
             &fov_map_lock,
             fov_recompute,
         );
 
         root.flush();
-        let player = &mut objects[0];
-        previous_player_position = player.pos();
-        let exit = handle_keys(&mut root, player, &map);
-        if exit {
+        previous_player_position = player_pos;
+        if handle_keys(&mut root, &map, &objects_lock) == PlayerAction::Exit {
             break;
         }
+        let (explored, total) = map.explored_count();
+        println!(
+            "explored tiles: {} / {} ({:.3}%)",
+            explored,
+            total,
+            (explored as f32 / total as f32) * 100f32
+        );
     }
 }
 
-fn handle_keys(root: &mut Root, player: &mut Object, map: &Map) -> bool {
+fn handle_keys(root: &mut Root, map: &Map, objects_lock: &Rc<Mutex<Vec<Object>>>) -> PlayerAction {
     use tcod::input::Key;
     use tcod::input::KeyCode::*;
-
+    use PlayerAction::*;
+    let player_alive = {
+        let objects = objects_lock.lock().unwrap();
+        objects[cst::PLAYER_POS].alive()
+    };
+    println!("Player alive: {}", &player_alive);
     let key = root.wait_for_keypress(true);
-    match key {
-        Key { code: Up, .. }
-        | Key {
+    match (key, player_alive) {
+        (Key { code: Up, .. }, true)
+        | (Key {
             code: Char,
             printable: 'w',
             ..
-        } => player.move_by(0, -1, map),
-        Key { code: Down, .. }
-        | Key {
+        }, true) => { map.move_object(objects_lock, cst::PLAYER_POS, (0, -1)); TookTurn },
+        (Key { code: Down, .. }, true)
+        | (Key {
             code: Char,
             printable: 's',
             ..
-        } => player.move_by(0, 1, map),
-        Key { code: Left, .. }
-        | Key {
+        }, true) => { map.move_object(objects_lock, cst::PLAYER_POS, (0, 1)); TookTurn },
+        (Key { code: Left, .. }, true)
+        | (Key {
             code: Char,
             printable: 'a',
             ..
-        } => player.move_by(-1, 0, map),
-        Key { code: Right, .. }
-        | Key {
+        }, true) => { map.move_object(objects_lock, cst::PLAYER_POS, (-1, 0)); TookTurn },
+        (Key { code: Right, .. }, true)
+        | (Key {
             code: Char,
             printable: 'd',
             ..
-        } => player.move_by(1, 0, map),
-        Key {
+        }, true) => { map.move_object(objects_lock, cst::PLAYER_POS, (1, 0)); TookTurn },
+        (Key {
             code: Enter,
             alt: true,
             ..
-        } => {
+        }, _) => {
             let fullscreen = root.is_fullscreen();
             root.set_fullscreen(!fullscreen);
+            DidntTakeTurn
         }
-        Key { code: Escape, .. } => return true,
-        _ => {}
+        (Key { code: Escape, .. }, _) => return Exit,
+        (Key {
+            code: Char,
+            printable: 'p',
+            ..
+        }, _) => {unsafe { DISABLED_FOV = !DISABLED_FOV }; DidntTakeTurn },
+        _ => DidntTakeTurn,
     }
-
-    false
 }
 
 fn render_all(
     root: &mut Root,
     con: &mut Offscreen,
-    objects: &mut [Object],
+    objects_lock: &std::rc::Rc<std::sync::Mutex<Vec<Object>>>,
     map: &mut Map,
     fov_map: &std::rc::Rc<std::sync::Mutex<tcod::map::Map>>,
     fov_recompute: bool,
 ) {
     let mut data = fov_map.lock().unwrap();
+    let objects = objects_lock.lock().unwrap();
+
     if fov_recompute {
         // recompute FOV if needed (the player moved or something)
-        let (x, y) = objects[0].pos();
+        let (x, y) = objects[cst::PLAYER_POS].pos();
         data.compute_fov(x, y, cst::TORCH_RADIUS, cst::FOV_LIGHT_WALLS, cst::FOV_ALGO);
     }
 
+    // draw each other object
     objects
         .iter()
         .filter(|o| {
@@ -147,13 +178,17 @@ fn render_all(
         })
         .for_each(|o| o.draw(con));
 
+    // draw player
+    objects[cst::PLAYER_POS].draw(con);
+
     for (i, t) in map.iter_mut().enumerate() {
         let (x, y) = Map::index_to_pos(i as i32);
         let visible = data.is_in_fov(x, y);
         if visible {
             t.explored = true;
         }
-        if t.explored {
+        // if t.explored || disabled_fov {
+        if t.explored || unsafe { DISABLED_FOV } {
             con.set_char_background(x, y, t.get_color(visible), BackgroundFlag::Set);
         }
     }
@@ -167,4 +202,20 @@ fn render_all(
         1.0,
         1.0,
     );
+}
+
+fn place_objects(room: &Rect, objects_lock: &std::rc::Rc<std::sync::Mutex<Vec<Object>>>) {
+    // choose a random number of monsters
+    let num_monsters = rand::thread_rng().gen_range(0, cst::MAX_ROOM_MONSTERS + 1);
+    for _ in 0..num_monsters {
+        let mut objects = objects_lock.lock().unwrap();
+        let x = rand::thread_rng().gen_range(room.x1 + 1, room.x2);
+        let y = rand::thread_rng().gen_range(room.y1 + 1, room.y2);
+
+        objects.push(if rand::random::<f32>() < 0.8 {
+            Object::new(x, y, 'o', colors::DESATURATED_GREEN, "goblin", true)
+        } else {
+            Object::new(x, y, 'T', colors::DARKER_GREEN, "orc", true)
+        });
+    }
 }
