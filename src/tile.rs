@@ -16,10 +16,11 @@ pub struct Colors {
 }
 
 impl Colors {
-    pub fn get(&self, visible: bool) -> Color {
-        match visible {
-            true => self.light,
-            false => self.dark,
+    pub fn get(self, visible: bool) -> Color {
+        if visible {
+            self.light
+        } else {
+            self.dark
         }
     }
 }

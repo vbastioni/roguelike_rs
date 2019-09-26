@@ -15,7 +15,7 @@ mod tile;
 
 use combinations::Combination as Cb;
 use map::Map;
-use object::Object;
+use object::{Object, Objects};
 use rect::Rect;
 
 use crate::constants as cst;
@@ -29,16 +29,16 @@ enum PlayerAction {
     Exit,
 }
 
-fn main() {
-
+fn init() -> (Rc<Mutex<Objects>>, Map, Rc<Mutex<FovMap>>, Root, Offscreen) {
     let player = Object::new(-1, -1, '@', colors::WHITE, "player", true);
-    let objects = vec![player];
+
+    let objects = Objects::new(player);
     let objects_lock = Rc::new(Mutex::new(objects));
 
-    let (mut map, (start_x, start_y)) = Map::new(|r| place_objects(r, &objects_lock));
+    let (map, (start_x, start_y)) = Map::new(|r| place_objects(r, &objects_lock));
     {
         let mut objects = objects_lock.lock().unwrap();
-        objects[cst::PLAYER_POS].set_pos((start_x, start_y));
+        objects.set_player_pos((start_x, start_y));
     }
 
     let fov_map = FovMap::new(cst::MAP_WIDTH, cst::MAP_HEIGHT);
@@ -54,23 +54,26 @@ fn main() {
             .set(tx, ty, !tile.block_sight, !tile.blocked);
     });
 
-    let mut root = Root::initializer()
+    let root = Root::initializer()
         .font("arial10x10.png", FontLayout::Tcod)
         .font_type(FontType::Greyscale)
         .size(cst::SCREEN_WIDTH, cst::SCREEN_HEIGHT)
         .title("Rust/libctod tutorial")
         .init();
 
-    let mut con = Offscreen::new(cst::MAP_WIDTH, cst::MAP_HEIGHT);
+    let con = Offscreen::new(cst::MAP_WIDTH, cst::MAP_HEIGHT);
 
     tcod::system::set_fps(cst::FPS_LIMIT);
 
+    (objects_lock, map, fov_map_lock, root, con)
+}
+
+fn main() {
+    let (objects_lock, mut map, fov_map_lock, mut root, mut con) = init();
+
     let mut previous_player_position = (-1, -1);
     while !root.window_closed() {
-        let player_pos = {
-            let objects = objects_lock.lock().unwrap();
-            objects[cst::PLAYER_POS].pos()
-        };
+        let player_pos = objects_lock.lock().unwrap().player().pos();
         let fov_recompute = previous_player_position != player_pos;
         con.clear();
 
@@ -85,7 +88,8 @@ fn main() {
 
         root.flush();
         previous_player_position = player_pos;
-        if handle_keys(&mut root, &map, &objects_lock) == PlayerAction::Exit {
+        let player_action = handle_keys(&mut root, &map, &objects_lock);
+        if player_action == PlayerAction::Exit {
             break;
         }
         let (explored, total) = map.explored_count();
@@ -95,10 +99,20 @@ fn main() {
             total,
             (explored as f32 / total as f32) * 100f32
         );
+
+        {
+            let objects = objects_lock.lock().unwrap();
+            if objects.player().alive() && player_action != PlayerAction::DidntTakeTurn {
+                for object in objects.monsters() {
+                    // only if object is not player
+                    println!("The {} growls!", object.name());
+                }
+            }
+        }
     }
 }
 
-fn handle_keys(root: &mut Root, map: &Map, objects_lock: &Rc<Mutex<Vec<Object>>>) -> PlayerAction {
+fn handle_keys(root: &mut Root, map: &Map, objects_lock: &Rc<Mutex<Objects>>) -> PlayerAction {
     use tcod::input::Key;
     use tcod::input::KeyCode::*;
     use PlayerAction::*;
@@ -106,7 +120,6 @@ fn handle_keys(root: &mut Root, map: &Map, objects_lock: &Rc<Mutex<Vec<Object>>>
         let objects = objects_lock.lock().unwrap();
         objects[cst::PLAYER_POS].alive()
     };
-    println!("Player alive: {}", &player_alive);
     let key = root.wait_for_keypress(true);
     match (key, player_alive) {
         (Key { code: Up, .. }, true)
@@ -114,25 +127,25 @@ fn handle_keys(root: &mut Root, map: &Map, objects_lock: &Rc<Mutex<Vec<Object>>>
             code: Char,
             printable: 'w',
             ..
-        }, true) => { map.move_object(objects_lock, cst::PLAYER_POS, (0, -1)); TookTurn },
+        }, true) => { map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (0, -1)); TookTurn },
         (Key { code: Down, .. }, true)
         | (Key {
             code: Char,
             printable: 's',
             ..
-        }, true) => { map.move_object(objects_lock, cst::PLAYER_POS, (0, 1)); TookTurn },
+        }, true) => { map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (0, 1)); TookTurn },
         (Key { code: Left, .. }, true)
         | (Key {
             code: Char,
             printable: 'a',
             ..
-        }, true) => { map.move_object(objects_lock, cst::PLAYER_POS, (-1, 0)); TookTurn },
+        }, true) => { map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (-1, 0)); TookTurn },
         (Key { code: Right, .. }, true)
         | (Key {
             code: Char,
             printable: 'd',
             ..
-        }, true) => { map.move_object(objects_lock, cst::PLAYER_POS, (1, 0)); TookTurn },
+        }, true) => { map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (1, 0)); TookTurn },
         (Key {
             code: Enter,
             alt: true,
@@ -142,7 +155,7 @@ fn handle_keys(root: &mut Root, map: &Map, objects_lock: &Rc<Mutex<Vec<Object>>>
             root.set_fullscreen(!fullscreen);
             DidntTakeTurn
         }
-        (Key { code: Escape, .. }, _) => return Exit,
+        (Key { code: Escape, .. }, _) => Exit,
         (Key {
             code: Char,
             printable: 'p',
@@ -155,7 +168,7 @@ fn handle_keys(root: &mut Root, map: &Map, objects_lock: &Rc<Mutex<Vec<Object>>>
 fn render_all(
     root: &mut Root,
     con: &mut Offscreen,
-    objects_lock: &std::rc::Rc<std::sync::Mutex<Vec<Object>>>,
+    objects_lock: &std::rc::Rc<std::sync::Mutex<Objects>>,
     map: &mut Map,
     fov_map: &std::rc::Rc<std::sync::Mutex<tcod::map::Map>>,
     fov_recompute: bool,
@@ -204,7 +217,7 @@ fn render_all(
     );
 }
 
-fn place_objects(room: &Rect, objects_lock: &std::rc::Rc<std::sync::Mutex<Vec<Object>>>) {
+fn place_objects(room: &Rect, objects_lock: &std::rc::Rc<std::sync::Mutex<Objects>>) {
     // choose a random number of monsters
     let num_monsters = rand::thread_rng().gen_range(0, cst::MAX_ROOM_MONSTERS + 1);
     for _ in 0..num_monsters {

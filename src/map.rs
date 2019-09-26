@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use rand::Rng;
 
 use crate::cst;
-use crate::object::Object;
+use crate::object::Objects;
 use crate::tile::{Tile, Type};
 use crate::Rect;
 
@@ -77,21 +77,36 @@ impl Map {
         (map, starting_pos.expect("should be set"))
     }
 
-    pub fn move_object(
+    pub fn move_or_attack_object(
         &self,
-        objects_lock: &Rc<Mutex<Vec<Object>>>,
+        objects_lock: &Rc<Mutex<Objects>>,
         index: usize,
         delta: (i32, i32),
     ) {
-        let (x, y) = {
+        let ((nx, ny), (dx, dy), target_id) = {
             let objects = objects_lock.lock().unwrap();
-            objects[index].pos()
+            let (x, y) = objects[index].pos();
+            let (dx, dy) = delta;
+            let new_pos = (dx + x, dy + y);
+            let target_id = objects.iter().position(|o| o.pos() == new_pos);
+            (new_pos, delta, target_id)
         };
-        let (dx, dy) = delta;
-        let (nx, ny) = (dx + x, dy + y);
-        if !self.is_blocked(nx, ny, objects_lock) {
-            let mut objects = objects_lock.lock().unwrap();
-            objects[index].move_by(dx, dy)
+        match target_id {
+            Some(id) => {
+                let objects = objects_lock.lock().unwrap();
+                if let Some(o) = objects.get(id) {
+                    println!(
+                        "The {} laughts at your puny efforts to attack him",
+                        o.name(),
+                    );
+                }
+            }
+            None => {
+                if !self.is_blocked(nx, ny, objects_lock) {
+                    let mut objects = objects_lock.lock().unwrap();
+                    objects[index].move_by(dx, dy)
+                }
+            }
         }
     }
 
@@ -107,7 +122,7 @@ impl Map {
         &mut self.0[(x + y * cst::MAP_WIDTH) as usize]
     }
 
-    pub fn is_blocked(&self, x: i32, y: i32, objects_lock: &Rc<Mutex<Vec<Object>>>) -> bool {
+    pub fn is_blocked(&self, x: i32, y: i32, objects_lock: &Rc<Mutex<Objects>>) -> bool {
         if self.get(x, y).blocked {
             true
         } else {
@@ -125,7 +140,7 @@ impl Map {
     }
 
     fn create_h_tunnel(&mut self, x1: i32, x2: i32, y: i32) {
-        for x in cmp::min(x1, x2)..(cmp::max(x1, x2) + 1) {
+        for x in cmp::min(x1, x2)..=cmp::max(x1, x2) {
             if self.get(x, y).inner == crate::tile::Type::Wall {
                 *self.get_mut(x, y) = Tile::debug();
             }
@@ -133,7 +148,7 @@ impl Map {
     }
 
     fn create_v_tunnel(&mut self, y1: i32, y2: i32, x: i32) {
-        for y in cmp::min(y1, y2)..(cmp::max(y1, y2) + 1) {
+        for y in cmp::min(y1, y2)..=cmp::max(y1, y2) {
             if self.get(x, y).inner == crate::tile::Type::Wall {
                 *self.get_mut(x, y) = Tile::debug();
             }

@@ -1,11 +1,47 @@
-use std::ops;
-use std::rc::Rc;
-use std::sync::Mutex;
+use std::ops::{Deref,DerefMut};
 
 use tcod::colors::Color;
 use tcod::console::*;
 
-use crate::map::Map;
+use crate::constants as cst;
+
+pub struct Objects(Vec<Object>);
+
+impl Objects {
+    pub fn new(player: Object) -> Self {
+        Objects(vec![player])
+    }
+
+    pub fn player(&self) -> &Object {
+        &self.0[cst::PLAYER_POS]
+    }
+
+    pub fn monsters(&self) -> &[Object] {
+        &self.0[(cst::PLAYER_POS + 1)..]
+    }
+
+    pub fn player_mut(&mut self) -> &mut Object {
+        &mut self.0[cst::PLAYER_POS]
+    }
+
+    pub fn set_player_pos(&mut self, pos: (i32, i32)) {
+        self.player_mut().set_pos(pos)
+    }
+}
+
+impl Deref for Objects {
+    type Target = Vec<Object>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Objects {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 #[derive(Debug)]
 pub struct Object {
@@ -13,14 +49,14 @@ pub struct Object {
     y: i32,
     char: char,
     color: Color,
-    name: String,
+    _name: String,
     _blocks: bool,
     _alive: bool,
 }
 
 impl Object {
     pub fn new(x: i32, y: i32, char: char, color: Color, name: &str, blocks: bool) -> Self {
-        Self { x, y, char, color, name: name.into(), _blocks: blocks, _alive: true, }
+        Self { x, y, char, color, _name: name.into(), _blocks: blocks, _alive: true, }
     }
 
     pub fn move_by(&mut self, dx: i32, dy: i32) {
@@ -52,5 +88,9 @@ impl Object {
 
     pub fn alive(&self) -> bool {
         self._alive
+    }
+
+    pub fn name(&self) -> &str {
+        &self._name
     }
 }
