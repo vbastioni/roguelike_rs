@@ -1,4 +1,4 @@
-use std::ops::{Deref,DerefMut};
+use std::ops::{Deref, DerefMut};
 
 use tcod::colors::Color;
 use tcod::console::*;
@@ -43,6 +43,28 @@ impl DerefMut for Objects {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Fighter {
+    max_hp: i32,
+    hp: i32,
+    defense: i32,
+    power: i32,
+}
+
+impl Fighter {
+    pub fn new(hp: i32, defense: i32, power: i32) -> Self {
+        Fighter {
+            max_hp: hp,
+            hp,
+            defense,
+            power,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AI;
+
 #[derive(Debug)]
 pub struct Object {
     x: i32,
@@ -52,17 +74,41 @@ pub struct Object {
     _name: String,
     _blocks: bool,
     _alive: bool,
+    _fighter: Option<Fighter>,
+    _ai: Option<AI>,
 }
 
 impl Object {
     pub fn new(x: i32, y: i32, char: char, color: Color, name: &str, blocks: bool) -> Self {
-        Self { x, y, char, color, _name: name.into(), _blocks: blocks, _alive: true, }
+        Self {
+            x: x,
+            y: y,
+            char: char,
+            color: color,
+            _name: name.into(),
+            _blocks: blocks,
+            _alive: true,
+            _fighter: None,
+            _ai: None,
+        }
     }
 
     pub fn move_by(&mut self, dx: i32, dy: i32) {
         // move by the given amount
         self.x += dx;
         self.y += dy;
+    }
+
+    pub fn distance_to(&self, other: &Object) -> (i32, i32, f32) {
+        self.distance_to_pos(other.pos())
+    }
+
+    pub fn distance_to_pos(&self, pos: (i32, i32)) -> (i32, i32, f32) {
+        let (x, y) = pos;
+        let dx = x - self.x;
+        let dy = y - self.y;
+        let distance = ((dx.pow(2) + dy.pow(2)) as f32).sqrt();
+        (dx, dy, distance)
     }
 
     /// set the color and then draw the character that represents this object
@@ -92,5 +138,17 @@ impl Object {
 
     pub fn name(&self) -> &str {
         &self._name
+    }
+
+    pub fn set_fighter(&mut self, fgh: Fighter) {
+        self._fighter = Some(fgh)
+    }
+
+    pub fn set_ai(&mut self, ai: AI) {
+        self._ai = Some(ai)
+    }
+
+    pub fn ai(&self) -> &Option<AI> {
+        &self._ai
     }
 }

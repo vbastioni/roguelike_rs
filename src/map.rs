@@ -110,6 +110,20 @@ impl Map {
         }
     }
 
+    pub fn move_toward(
+        &self,
+        objects_lock: &Rc<Mutex<Objects>>,
+        index: usize,
+        pos: (i32, i32),
+    ) {
+        let mut objects = objects_lock.lock().unwrap();
+        let mut o = &mut objects[index];
+        let (dx, dy, distance) = o.distance_to_pos(pos);
+        let dx = (dx as f32 / distance).round() as i32;
+        let dy = (dy as f32 / distance).round() as i32;
+        o.move_by(dx, dy);
+    }
+
     pub fn set(&mut self, x: i32, y: i32, t: Tile) {
         *self.get_mut(x, y) = t;
     }

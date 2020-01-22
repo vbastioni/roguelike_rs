@@ -15,7 +15,7 @@ mod tile;
 
 use combinations::Combination as Cb;
 use map::Map;
-use object::{Object, Objects};
+use object::{Object, Objects, Fighter, AI};
 use rect::Rect;
 
 use crate::constants as cst;
@@ -30,7 +30,8 @@ enum PlayerAction {
 }
 
 fn init() -> (Rc<Mutex<Objects>>, Map, Rc<Mutex<FovMap>>, Root, Offscreen) {
-    let player = Object::new(-1, -1, '@', colors::WHITE, "player", true);
+    let mut player = Object::new(-1, -1, '@', colors::WHITE, "player", true);
+    player.set_fighter(Fighter::new(30, 2, 5));
 
     let objects = Objects::new(player);
     let objects_lock = Rc::new(Mutex::new(objects));
@@ -103,12 +104,54 @@ fn main() {
         {
             let objects = objects_lock.lock().unwrap();
             if objects.player().alive() && player_action != PlayerAction::DidntTakeTurn {
-                for object in objects.monsters() {
+                for (i, _) in objects.monsters().iter().enumerate().filter(|(_, o)| o.ai().is_some()) {
+                    ai_take_turn(i, &map, &objects_lock, &fov_map_lock);
                     // only if object is not player
-                    println!("The {} growls!", object.name());
+                    // println!("The {} growls!", object.name());
                 }
             }
         }
+    }
+}
+
+enum EnemyAction {
+    Attack(usize, usize),
+    Idle,
+    Move(i32, i32),
+}
+
+fn ai_take_turn(monster_id: usize, map: &Map, objects_lock: &Rc<Mutex<Objects>>, fov_map_lock: &Rc<Mutex<FovMap>>) {
+    match {
+        let objects = objects_lock.lock().unwrap();
+        let monster = &objects[monster_id];
+        let player = &objects[cst::PLAYER_POS];
+        let (x, y) = monster.pos();
+        let fov_map = fov_map_lock.lock().unwrap();
+        if !fov_map.is_in_fov(x, y) { EnemyAction::Idle }
+        else {
+            let distance = monster.distance_to(player).2;
+            if distance >= 2.0f32 {
+                let (px, py) = player.pos();
+                EnemyAction::Move(px, py)
+            } else if true {
+                EnemyAction::Attack(monster_id, cst::PLAYER_POS)
+            } else {
+                EnemyAction::Idle
+            }
+        }
+    } {
+        EnemyAction::Attack(monster_id, player_id) => {
+            let objects = objects_lock.lock().unwrap();
+            let monster = &objects[monster_id];
+            let player = &objects[player_id];
+
+            println!("The attack of {} bounces on {}'s armor!", monster.name(), player.name())
+        },
+        EnemyAction::Move(x, y) => {
+            let mut objects = objects_lock.lock().unwrap();
+            objects[monster_id].move_by(x, y);
+        },
+        EnemyAction::Idle => {},
     }
 }
 
@@ -122,45 +165,32 @@ fn handle_keys(root: &mut Root, map: &Map, objects_lock: &Rc<Mutex<Objects>>) ->
     };
     let key = root.wait_for_keypress(true);
     match (key, player_alive) {
-        (Key { code: Up, .. }, true)
-        | (Key {
-            code: Char,
-            printable: 'w',
-            ..
-        }, true) => { map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (0, -1)); TookTurn },
-        (Key { code: Down, .. }, true)
-        | (Key {
-            code: Char,
-            printable: 's',
-            ..
-        }, true) => { map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (0, 1)); TookTurn },
-        (Key { code: Left, .. }, true)
-        | (Key {
-            code: Char,
-            printable: 'a',
-            ..
-        }, true) => { map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (-1, 0)); TookTurn },
-        (Key { code: Right, .. }, true)
-        | (Key {
-            code: Char,
-            printable: 'd',
-            ..
-        }, true) => { map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (1, 0)); TookTurn },
-        (Key {
-            code: Enter,
-            alt: true,
-            ..
-        }, _) => {
+        (Key { code: Up, .. }, true) | (Key { code: Char, printable: 'w', .. }, true) => {
+            map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (0, -1));
+            TookTurn
+        },
+        (Key { code: Down, .. }, true) | (Key { code: Char, printable: 's', .. }, true) => {
+            map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (0, 1));
+            TookTurn
+        },
+        (Key { code: Left, .. }, true) | (Key { code: Char, printable: 'a', .. }, true) => {
+            map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (-1, 0));
+            TookTurn
+        },
+        (Key { code: Right, .. }, true) | (Key { code: Char, printable: 'd', .. }, true) => {
+            map.move_or_attack_object(objects_lock, cst::PLAYER_POS, (1, 0));
+            TookTurn
+        },
+        (Key { code: Enter, alt: true, .. }, _) => {
             let fullscreen = root.is_fullscreen();
             root.set_fullscreen(!fullscreen);
             DidntTakeTurn
-        }
+        },
         (Key { code: Escape, .. }, _) => Exit,
-        (Key {
-            code: Char,
-            printable: 'p',
-            ..
-        }, _) => {unsafe { DISABLED_FOV = !DISABLED_FOV }; DidntTakeTurn },
+        (Key { code: Char, printable: 'p', .. }, _) => {
+            unsafe { DISABLED_FOV = !DISABLED_FOV };
+            DidntTakeTurn
+        },
         _ => DidntTakeTurn,
     }
 }
@@ -226,9 +256,15 @@ fn place_objects(room: &Rect, objects_lock: &std::rc::Rc<std::sync::Mutex<Object
         let y = rand::thread_rng().gen_range(room.y1 + 1, room.y2);
 
         objects.push(if rand::random::<f32>() < 0.8 {
-            Object::new(x, y, 'o', colors::DESATURATED_GREEN, "goblin", true)
+            let mut orc = Object::new(x, y, 'o', colors::DESATURATED_GREEN, "orc", true);
+            orc.set_fighter(Fighter::new(10, 0, 3));
+            orc.set_ai(AI{});
+            orc
         } else {
-            Object::new(x, y, 'T', colors::DARKER_GREEN, "orc", true)
+            let mut troll = Object::new(x, y, 'T', colors::DARKER_GREEN, "troll", true);
+            troll.set_fighter(Fighter::new(16, 1, 4));
+            troll.set_ai(AI{});
+            troll
         });
     }
 }
